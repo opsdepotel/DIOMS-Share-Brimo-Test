@@ -1,0 +1,6 @@
+{
+  "name": "DIOMS Share Target Test",
+  "description": "Diagnostic PWA for testing Web Share Target on Android 16 with BRImo",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
