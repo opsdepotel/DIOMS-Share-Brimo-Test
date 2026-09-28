@@ -1,13 +1,13 @@
 {
   "name": "DIOMS Share Target Test",
   "short_name": "Share Target Test",
-  "description": "Diagnostic PWA for testing Web Share Target on Android",
+  "description": "Diagnostic PWA for testing Web Share Target on Android 16",
   "display": "standalone",
   "start_url": "/",
   "scope": "/",
   "orientation": "portrait",
   "theme_color": "#2563eb",
-  "background_color": "#ffffff",
+  "background_color": "#0f172a",
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -35,7 +35,27 @@
           "name": "file",
           "accept": [
             "image/*",
-            "application/pdf"
+            "image/png",
+            "image/jpeg",
+            "image/jpg",
+            "image/webp",
+            "image/heic",
+            "application/pdf",
+            "application/octet-stream",
+            "*/*"
+          ]
+        },
+        {
+          "name": "image",
+          "accept": [
+            "image/*",
+            "*/*"
+          ]
+        },
+        {
+          "name": "files",
+          "accept": [
+            "*/*"
           ]
         }
       ]

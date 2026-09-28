@@ -1,6 +1,6 @@
 // DIOMS Share Target Test - Service Worker
-// Version: dioms-share-test-v1
-const CACHE_NAME = 'dioms-share-test-v1';
+// Version: dioms-share-test-v2
+const CACHE_NAME = 'dioms-share-test-v2';
 const DB_NAME = 'DIOMS_SHARE_TARGET_TEST';
 const DB_VERSION = 1;
 const STORE_SHARED = 'shared_items';
@@ -79,6 +79,74 @@ async function notifyClients(message) {
   }
 }
 
+// Convert Base64 data URI to Blob
+function dataURItoBlob(dataURI) {
+  try {
+    const byteString = atob(dataURI.split(',')[1]);
+    const mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    return new Blob([ab], { type: mimeString });
+  } catch {
+    return null;
+  }
+}
+
+// Generate image Blob from shared text if no binary image was attached by Android
+function textToReceiptBlob(title, text, url) {
+  try {
+    const canvas = new OffscreenCanvas(400, 500);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, 400, 500);
+
+    ctx.fillStyle = '#2563eb';
+    ctx.fillRect(20, 20, 360, 60);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('TEXT SHARE CAPTURED', 200, 55);
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+
+    let y = 110;
+    ctx.fillText(`Title: ${title || '(none)'}`, 30, y);
+    y += 25;
+
+    ctx.fillText('Shared Content / URL:', 30, y);
+    y += 20;
+
+    const fullContent = (text + ' ' + url).trim();
+    const words = fullContent.split(' ');
+    let line = '';
+    for (let i = 0; i < words.length; i++) {
+      const testLine = line + words[i] + ' ';
+      if (testLine.length > 35) {
+        ctx.fillText(line, 40, y);
+        line = words[i] + ' ';
+        y += 20;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) {
+      ctx.fillText(line, 40, y);
+    }
+
+    return canvas.convertToBlob({ type: 'image/png' });
+  } catch {
+    return null;
+  }
+}
+
 // Installation
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -102,7 +170,6 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       await logSwEvent('Service Worker activating', `Version: ${CACHE_NAME}`, 'INFO');
-      // Delete old caches
       const cacheKeys = await caches.keys();
       for (const key of cacheKeys) {
         if (key !== CACHE_NAME) {
@@ -144,18 +211,38 @@ async function handleShareTarget(request) {
     text = (formData.get('text') || '').toString();
     url = (formData.get('url') || '').toString();
 
-    // Check primary 'file' field
-    const primaryFile = formData.get('file');
-    if (primaryFile instanceof Blob) {
-      file = primaryFile;
-    } else {
-      // Look for any Blob/File in any field as fallback
+    // 1. Scan all form keys for binary Blob / File objects
+    for (const key of keys) {
+      const val = formData.get(key);
+      if (val instanceof Blob && val.size > 0) {
+        file = val;
+        await logSwEvent('Binary Blob found in form field', `Key: "${key}" | Size: ${val.size} bytes`, 'PASS');
+        break;
+      }
+    }
+
+    // 2. If no binary Blob, check if text/url/field contains a Base64 data URL
+    if (!file) {
       for (const key of keys) {
-        const val = formData.get(key);
-        if (val instanceof Blob && val.size > 0) {
-          file = val;
-          break;
+        const strVal = (formData.get(key) || '').toString();
+        if (strVal.includes('data:image/') || strVal.includes('data:application/pdf')) {
+          const match = strVal.match(/data:(image\/[a-zA-Z0-9+-]+|application\/pdf);base64,[A-Za-z0-9+/=]+/);
+          if (match) {
+            file = dataURItoBlob(match[0]);
+            if (file) {
+              await logSwEvent('Base64 image data extracted from text field', `Key: "${key}" | Size: ${file.size} bytes`, 'PASS');
+              break;
+            }
+          }
         }
+      }
+    }
+
+    // 3. Fallback: if text or URL was provided without binary file, generate receipt blob representation
+    if (!file && (text || url || title)) {
+      file = await textToReceiptBlob(title, text, url);
+      if (file) {
+        await logSwEvent('Text share receipt rendered into image Blob', `Title: "${title}"`, 'INFO');
       }
     }
   }
@@ -237,7 +324,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Ignore non-http schemes (chrome-extension, etc.)
+  // 3. Ignore non-http schemes
   if (!url.protocol.startsWith('http')) {
     return;
   }
@@ -245,7 +332,6 @@ self.addEventListener('fetch', (event) => {
   // 4. Cache-first strategy for precached assets, network fallback
   event.respondWith(
     (async () => {
-      // Check cache first
       const cached = await caches.match(event.request);
       if (cached) {
         return cached;
@@ -254,7 +340,6 @@ self.addEventListener('fetch', (event) => {
         const response = await fetch(event.request);
         return response;
       } catch (err) {
-        // If offline and request is HTML navigation, return cached index
         if (event.request.mode === 'navigate') {
           const indexFallback = await caches.match('/index.html');
           if (indexFallback) return indexFallback;
